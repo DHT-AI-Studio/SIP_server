@@ -1,0 +1,96 @@
+CC = gcc
+CFLAGS = -Wall -I.
+LDFLAGS = -lpthread -lwebsockets -lssl -lcrypto -lm
+
+# 定義源文件
+SIP_LIB_SRCS = lib/sip_client.c lib/sip_call.c lib/sip_message.c 
+SIP_LIB_OBJS = $(SIP_LIB_SRCS:.c=.o)
+
+# 所有目標
+all: ws_audio_server ws_audio_client create_sample_wav
+
+# 編譯 SIP 庫源文件
+lib/%.o: lib/%.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+# 將 RTP 相關函數加入 SIP 庫
+rtp_functions.o: lib/rtp.c
+	$(CC) $(CFLAGS) -c -o $@ $< -DOMIT_RTP_RECEIVER
+
+# 創建 SIP 靜態庫
+sip_lib.a: $(SIP_LIB_OBJS) rtp_functions.o
+	ar rcs $@ $(SIP_LIB_OBJS) rtp_functions.o
+
+# WebSocket 音頻服務器
+ws_audio_server: ws_audio_server.c lib/sip_client.c lib/sip_call.c lib/sip_message.c lib/rtp.c
+	$(CC) $(CFLAGS) -o $@ $< lib/sip_client.c lib/sip_call.c lib/sip_message.c lib/rtp.c $(LDFLAGS)
+
+# WebSocket 音頻客戶端
+ws_audio_client: ws_audio_client.c
+	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
+
+# 創建樣本 WAV 文件工具
+create_sample_wav: create_sample_wav.c
+	$(CC) $(CFLAGS) -o $@ $< -lm
+
+# 清理編譯文件
+clean:
+	rm -f ws_audio_server ws_audio_client create_sample_wav *.o lib/*.o sample.wav uploaded_wavs/*
+
+# 清理上傳目錄
+clean-uploads:
+	rm -rf uploaded_wavs
+	mkdir -p uploaded_wavs
+
+# 測試音檔
+sample: create_sample_wav
+	./create_sample_wav
+
+# 運行音頻服務器
+audio-server: ws_audio_server sample clean-uploads
+	./ws_audio_server
+
+# 運行音頻客戶端
+audio-client: ws_audio_client
+	./ws_audio_client
+
+# 使用特定 IP 運行音頻客戶端
+audio-client-ip: ws_audio_client
+	@echo "運行音頻客戶端連接到指定 IP 地址"
+	@read -p "輸入服務器 IP 地址 (默認: 192.168.157.126): " ip && \
+	ip=$${ip:-192.168.157.126} && \
+	read -p "輸入服務器端口 (默認: 8080): " port && \
+	port=$${port:-8080} && \
+	./ws_audio_client --server $$ip --port $$port
+
+# 測試上傳 WAV 檔案（需要先有 sample.wav）
+test-upload: sample
+	@echo "準備測試 WAV 檔案上傳功能"
+	@echo "請確保:"
+	@echo "1. 服務器正在運行 (make audio-server)"
+	@echo "2. 客戶端已連接並建立通話"
+	@echo "3. 在客戶端選擇選項 5 上傳 sample.wav"
+
+# 幫助信息
+help:
+	@echo "可用的命令:"
+	@echo "  make all                - 編譯所有程序"
+	@echo "  make ws_audio_server    - 編譯音頻服務器"
+	@echo "  make ws_audio_client    - 編譯音頻客戶端"
+	@echo "  make sample             - 創建測試 WAV 檔案"
+	@echo "  make audio-server       - 運行音頻服務器"
+	@echo "  make audio-client       - 運行音頻客戶端"
+	@echo "  make audio-client-ip    - 連接到指定 IP 的音頻客戶端"
+	@echo "  make test-upload        - 準備測試檔案上傳"
+	@echo "  make clean              - 清理編譯檔案"
+	@echo "  make clean-uploads      - 清理上傳目錄"
+	@echo "  make help               - 顯示此幫助信息"
+	@echo ""
+	@echo "使用方式:"
+	@echo "1. 終端 1: make audio-server"
+	@echo "2. 終端 2: make audio-client (或 make audio-client-ip)"
+	@echo "3. 在客戶端撥打電話，建立通話"
+	@echo "4. 在客戶端選擇選項 5 上傳 WAV 檔案"
+	@echo "5. 在客戶端選擇選項 6 播放上傳的檔案"
+
+.PHONY: all clean clean-uploads sample audio-server audio-client audio-client-ip test-upload help 

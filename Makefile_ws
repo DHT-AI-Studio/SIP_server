@@ -1,0 +1,65 @@
+CC = gcc
+CFLAGS = -Wall -I.
+LDFLAGS = -lpthread -lwebsockets -lssl -lcrypto -lm
+
+# 定義源文件
+SIP_LIB_SRCS = lib/sip_client.c lib/sip_call.c lib/sip_message.c 
+SIP_LIB_OBJS = $(SIP_LIB_SRCS:.c=.o)
+
+# 所有目標
+all: ws_demo_server ws_demo_client create_sample_wav
+
+# 編譯 SIP 庫源文件
+lib/%.o: lib/%.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+# 將 RTP 相關函數加入 SIP 庫
+rtp_functions.o: lib/rtp.c
+	$(CC) $(CFLAGS) -c -o $@ $< -DOMIT_RTP_RECEIVER
+
+# 創建 SIP 靜態庫
+sip_lib.a: $(SIP_LIB_OBJS) rtp_functions.o
+	ar rcs $@ $(SIP_LIB_OBJS) rtp_functions.o
+
+# 編譯 RTP 庫
+rtp_lib.o: rtp_lib.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+# WebSocket 服務器
+ws_demo_server: ws_demo_server.c lib/sip_client.c lib/sip_call.c lib/sip_message.c lib/rtp.c
+	$(CC) $(CFLAGS) -o $@ $< lib/sip_client.c lib/sip_call.c lib/sip_message.c lib/rtp.c $(LDFLAGS)
+
+# WebSocket 客戶端
+ws_demo_client: ws_demo_client.c
+	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
+
+# 創建樣本 WAV 文件工具
+create_sample_wav: create_sample_wav.c
+	$(CC) $(CFLAGS) -o $@ $< -lm
+
+# 清理編譯文件
+clean:
+	rm -f ws_demo_server ws_demo_client create_sample_wav *.o lib/*.o sample.wav
+
+# 測試音檔
+sample: create_sample_wav
+	./create_sample_wav
+
+# 運行服務器
+server: ws_demo_server sample
+	./ws_demo_server
+
+# 運行客戶端
+client: ws_demo_client
+	./ws_demo_client
+
+# 使用特定 IP 運行客戶端
+client-ip: ws_demo_client
+	@echo "運行客戶端連接到指定 IP 地址"
+	@read -p "輸入服務器 IP 地址 (默認: 192.168.157.126): " ip && \
+	ip=$${ip:-192.168.157.126} && \
+	read -p "輸入服務器端口 (默認: 8080): " port && \
+	port=$${port:-8080} && \
+	./ws_demo_client --server $$ip --port $$port
+
+.PHONY: all clean sample server client client-ip 
